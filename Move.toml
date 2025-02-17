@@ -1,0 +1,16 @@
+[package]
+name = "habithub"
+version = "1.0.0"
+authors = []
+
+[addresses]
+movement = "67f20ef14bf8ec40bc87b07c78904e2acb734b4ce467349403aa54ffca073d03"
+
+[dev-addresses]
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-framework"
+
+[dev-dependencies]
