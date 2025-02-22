@@ -195,15 +195,15 @@ module movement::Campaign {
         *vector::borrow(&id_list, index)
     } 
 
-    fun add_validator(validator_addr: address) acquires ValidatorRegistry {
-        let validator_registry = borrow_global_mut<ValidatorRegistry>(@movement);
-        let validator_length = vector::length(&validator_registry);
+    // fun add_validator(validator_addr: address) acquires ValidatorRegistry {
+    //     let validator_registry = borrow_global_mut<ValidatorRegistry>(@movement);
+    //     let validator_length = vector::length(&validator_registry);
         
-        let next_validator_id = validator_length + 1;
+    //     let next_validator_id = validator_length + 1;
         
-        vector::push_back(&mut validator_registry.ids, validator_addr);
-        vector::push_back(&mut validator_registry.addresses, next_validator_id);
-    }
+    //     vector::push_back(&mut validator_registry.ids, validator_addr);
+    //     vector::push_back(&mut validator_registry.addresses, next_validator_id);
+    // }
 
     #[view]
     public fun get_all_campaign(): vector<Campaign> acquires CampaignRegistry {
