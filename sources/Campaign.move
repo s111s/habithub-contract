@@ -22,6 +22,8 @@ module movement::Campaign {
     const ERR_LIMIT_PARTICIPANT_EXISTED: u64 = 1005;
 
     const ERR_ADDRESS_NOT_EXIST_IN_PARTICIPANT: u64 = 1008;
+    const ERR_ONLY_ADMIN: u64 = 1009;
+    const ERR_NOT_VALIDATOR: u64 = 1010;
     
     // verify data, 
     // distribute reward
@@ -61,8 +63,9 @@ module movement::Campaign {
     }
 
     struct Validator has key, store, copy, drop {
-        ids: vector<u64>,
-        addresses: vector<address>
+        id: u64,
+        addr: address,
+        rule: String
     }
 
     fun init_module_internal(owner: &signer) {
@@ -74,10 +77,6 @@ module movement::Campaign {
             validators: vector::empty<Validator>()
         });
 
-        // let validator = Validator {
-        //     ids: vector::empty<u64>,
-        //     addresses: vector::empty<u64>
-        // }
     }
 
     fun create_campaign(sender: &signer, campaign_name: String, duration: u64, reward_pool: u64, reward_per_submit: u64, max_participant: u64) acquires CampaignRegistry {
@@ -183,7 +182,8 @@ module movement::Campaign {
         participant_info.is_submitted = true;
     }
 
-    fun get_participant_id_from_address(campaign_id: u64, addr: address): u64 acquires CampaignRegistry {
+    #[view]
+    public fun get_participant_id_from_address(campaign_id: u64, addr: address): u64 acquires CampaignRegistry {
         let campaign_registry = borrow_global<CampaignRegistry>(@movement);
         let campaign = vector::borrow(&campaign_registry.campaigns, campaign_id - 1);
         let addr_list = campaign.participant_address_index;
@@ -193,17 +193,80 @@ module movement::Campaign {
         let id_list = campaign.participant_id_index;
 
         *vector::borrow(&id_list, index)
-    } 
+    }
 
-    // fun add_validator(validator_addr: address) acquires ValidatorRegistry {
-    //     let validator_registry = borrow_global_mut<ValidatorRegistry>(@movement);
-    //     let validator_length = vector::length(&validator_registry);
+    #[view]
+    public fun get_all_participant(campaign_id: u64): vector<Participant> acquires CampaignRegistry {
+        let campaign_registry = borrow_global<CampaignRegistry>(@movement);
+        let campaign = vector::borrow(&campaign_registry.campaigns, campaign_id - 1);
+        campaign.participants
+    }
+
+    public entry fun add_validator(admin: &signer, validator_addr: address, rule: String) acquires ValidatorRegistry {
+        let admin_addr = signer::address_of(admin);
+        assert!(admin_addr == @movement, ERR_ONLY_ADMIN);
+
+        let validator_registry = borrow_global_mut<ValidatorRegistry>(@movement);
+        let validators = validator_registry.validators;
+        let validator_length = vector::length(&validators);
+
+        let next_validator_id = validator_length + 1;
+
+        let new_validator = Validator {
+            id: next_validator_id,
+            addr: validator_addr,
+            rule: rule
+        };
         
-    //     let next_validator_id = validator_length + 1;
+        vector::push_back(&mut validator_registry.validators, new_validator);
+    }
+
+    public entry fun validate_data(validator: &signer, campaign_id: u64, submit_id: u64, is_pass: bool) acquires CampaignRegistry, ValidatorRegistry {
+        let validator_addr = signer::address_of(validator);
+        assert!(is_validator(signer::address_of(validator)), ERR_NOT_VALIDATOR);
+
+        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
+        let campaign = vector::borrow_mut(&mut campaign_registry.campaigns, campaign_id - 1);
+
+        // check users must submit before
+        // assert!(!exists<Participant>(campaign.participants), ERR_USER_IS_NOT_SUBMITTED);
+
+        let id_list = campaign.participant_id_index;
+
+        let participant_id = *vector::borrow(&id_list, submit_id - 1);
+        let participant_info = vector::borrow_mut(&mut campaign.participants, participant_id - 1);
+
+        participant_info.is_validated = true;
+        participant_info.is_validation_pass = is_pass;
+    }
+
+    #[view]
+    public fun is_validator(addr: address): bool acquires ValidatorRegistry {
+        let validators = borrow_global_mut<ValidatorRegistry>(@movement).validators;
+        let validator_length = vector::length(&validators);
+
+        let i = 0;
+        let found_count = 0;
+        while (i < validator_length) {
+            let validator = *vector::borrow(&validators, i);
+            if (&validator.addr == &addr) {
+                found_count = found_count + 1;
+            };
+            i = i + 1;
+        };
         
-    //     vector::push_back(&mut validator_registry.ids, validator_addr);
-    //     vector::push_back(&mut validator_registry.addresses, next_validator_id);
-    // }
+        if (found_count > 0) {
+            true
+        } else {
+            false
+        }
+        
+    }
+
+    #[view]
+    public fun get_all_validator(): vector<Validator> acquires ValidatorRegistry {
+        return borrow_global<ValidatorRegistry>(@movement).validators
+    }
 
     #[view]
     public fun get_all_campaign(): vector<Campaign> acquires CampaignRegistry {
@@ -239,8 +302,8 @@ module movement::Campaign {
         // }
     }
 
-    #[test(owner = @movement, init_addr = @0x1, participant1 = @0x101)]
-    fun test_function(owner: &signer, init_addr: signer, participant1: &signer) acquires CampaignRegistry {
+    #[test(owner = @movement, init_addr = @0x1, participant1 = @0x101, validator1 = @0x999)]
+    fun test_function(owner: &signer, init_addr: signer, participant1: &signer, validator1: &signer) acquires CampaignRegistry, ValidatorRegistry {
         timestamp::set_time_has_started_for_testing(&init_addr);
         init_module_internal(owner);
         create_campaign(owner, utf8(b"Campaign Name 1 Naja"), 90000, 5001, 500, 10);
@@ -249,6 +312,8 @@ module movement::Campaign {
         participate_on_campaign(owner, 1);
         participate_on_campaign(participant1, 1);
         submit_on_campaign(participant1, 1);
+        add_validator(owner, signer::address_of(validator1), utf8(b"ANY"));
+        validate_data(validator1, 1, 2, true);
 
         let campaign_result = get_all_campaign();
         print(&campaign_result);
@@ -258,9 +323,16 @@ module movement::Campaign {
         let p_id_from_addr = get_participant_id_from_address(1, signer::address_of(participant1));
         print(&p_id_from_addr);
         
+        
 
-        // let p_index = get_campaign_participant_index(1);
-        // print(&p_index);
+        let all_validator_result = get_all_validator();
+        print(&all_validator_result);
+
+        let is_validator = is_validator(signer::address_of(validator1));
+        print(&is_validator);
+
+        let is_validator2 = is_validator(signer::address_of(owner));
+        print(&is_validator2);
         
     }
 
