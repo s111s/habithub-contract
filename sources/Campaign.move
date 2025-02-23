@@ -5,8 +5,10 @@ module movement::Campaign {
     use std::signer;
     use std::debug::print;
 
+    // Config
     const SEC_IN_1_DAY: u64 = 86400;
 
+    // Error Code
     const ERR_PAST_START_TIME: u64 = 101;
     const ERR_MINIMUM_PERIOD: u64 = 102;
     const ERR_MAX_PARTICIPANT_EXISTED: u64 = 104;
@@ -14,20 +16,22 @@ module movement::Campaign {
     const ERR_CAMPAIGN_IS_ENDED: u64 = 106;
     const ERR_NOT_IN_WHITELIST: u64 = 107;
     const ERR_ALREADY_JOIN_THIS_CAMPAIGN: u64 = 108;
-
     const ERR_LIVE_CAMPAIGN_ALREADY_EXISTS: u64 = 1001;
     const ERR_CAMPAIGN_DOES_NOT_EXIST: u64 = 1002;
     const ERR_CAMPAIGN_HAS_ENDED: u64 = 1003;
     const ERR_USER_ALREADY_PARTICIPATED: u64 = 1004;
     const ERR_LIMIT_PARTICIPANT_EXISTED: u64 = 1005;
-
     const ERR_ADDRESS_NOT_EXIST_IN_PARTICIPANT: u64 = 1008;
     const ERR_ONLY_ADMIN: u64 = 1009;
     const ERR_NOT_VALIDATOR: u64 = 1010;
-    
-    // verify data, 
-    // distribute reward
+    const ERR_INCORRECT_REWARD_SETTING: u64 = 1011;
+    const ERR_ALREADY_SUBMIT: u64 = 1012;
+    const ERR_USER_IS_NOT_SUBMITTED: u64 = 1013;
+    const ERR_SUBMIT_IS_NOT_VALIDATED: u64 = 1014;
+    const ERR_NOT_PASS_VERIFICATION: u64 = 1015;
+    const ERR_ALREADY_CLAIMED_REWARD: u64 = 1016;
 
+    // Struct
     struct CampaignRegistry has key, store, copy, drop {
         campaigns: vector<Campaign>
     }
@@ -68,121 +72,40 @@ module movement::Campaign {
         rule: String
     }
 
+    // Initialization
     fun init_module_internal(owner: &signer) {
+        // Store CampaignRegistry struct
         move_to(owner, CampaignRegistry{
             campaigns: vector::empty<Campaign>()
         });
 
+        // Store ValidatorRegistry struct
         move_to(owner, ValidatorRegistry{
             validators: vector::empty<Validator>()
         });
 
     }
 
-    fun create_campaign(sender: &signer, campaign_name: String, duration: u64, reward_pool: u64, reward_per_submit: u64, max_participant: u64) acquires CampaignRegistry {
-        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
-        let campaign_registry_length = vector::length(&campaign_registry.campaigns);
-        let campaign_end_time = if(campaign_registry_length > 0) {
-            vector::borrow(&campaign_registry.campaigns, campaign_registry_length - 1).end_time
-        } else {
-            0
-        };
-
-        let now = timestamp::now_seconds();
-        // assert!(campaign_end_time == 0 || now >= campaign_end_time, ERR_LIVE_CAMPAIGN_ALREADY_EXISTS);
-        let next_campaign_id = campaign_registry_length + 1;
-        let new_campaign = Campaign {
-            campaign_id: next_campaign_id,
-            name: campaign_name,
-            creator: signer::address_of(sender),
-            start_time: now,
-            end_time: now + duration,
-            reward_pool: reward_pool,
-            reward_per_submit: reward_per_submit,
-            current_participant: 0,
-            max_participant: max_participant,
-            participants: vector::empty<Participant>(),
-            participant_id_index: vector::empty<u64>(),
-            participant_address_index: vector::empty<address>()
-        };
-
-        vector::push_back(&mut campaign_registry.campaigns, new_campaign);
+    // View Function
+    #[view] // Get all campaign struct data
+    public fun get_all_campaign(): vector<Campaign> acquires CampaignRegistry {
+        return borrow_global<CampaignRegistry>(@movement).campaigns
     }
 
-    fun participate_on_campaign(sender: &signer, campaign_id: u64) acquires CampaignRegistry {
-        let sender_addr = signer::address_of(sender);
-
-        // check campaign exists
-        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
-        let campaign_registry_length = vector::length(&campaign_registry.campaigns);
-        assert!(campaign_id > 0 && campaign_id <= campaign_registry_length, ERR_CAMPAIGN_DOES_NOT_EXIST);
-
-        // check campaign has ended
-        let campaign = vector::borrow_mut(&mut campaign_registry.campaigns, campaign_id - 1);
-        
-        let now = timestamp::now_seconds();
-        // assert!(now < campaign.end_time, ERR_CAMPAIGN_HAS_ENDED);
-        
-        // check users already participate 
-        // assert!(!exists<Participant>(campaign.participants), ERR_USER_ALREADY_PARTICIPATED);
-
-        // check limit number of participant
-        assert!(campaign.current_participant < campaign.max_participant, ERR_LIMIT_PARTICIPANT_EXISTED);
-
-        // check remaining allocated reward
-        // Todo
-
-        // count participant
-        campaign.current_participant = campaign.current_participant + 1;
-
-        let new_participant = Participant {
-            participant_id: campaign.current_participant,
-            participant_address: sender_addr,
-            submit_hash: utf8(b""),
-            is_participated: true,
-            is_submitted: false,
-            is_validated: false,
-            is_validation_pass: false,
-            is_claimed_reward: false
-        };
-
-        vector::push_back(&mut campaign.participants, new_participant);
-
-        // map participant index
-        vector::push_back(&mut campaign.participant_id_index, campaign.current_participant);
-        vector::push_back(&mut campaign.participant_address_index, sender_addr);
+    #[view] // Get data from specific campaign
+    public fun get_campaign_by_id(campaign_id: u64): Campaign acquires CampaignRegistry {
+        let campaigns = get_all_campaign();
+        *vector::borrow(&campaigns, campaign_id - 1)
     }
 
-    fun submit_on_campaign(sender: &signer, campaign_id: u64) acquires CampaignRegistry {
-        let sender_addr = signer::address_of(sender);
-        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
-        let campaign = vector::borrow_mut(&mut campaign_registry.campaigns, campaign_id - 1);
-
-        let now = timestamp::now_seconds();
-        // assert!(now < campaign.end_time, ERR_CAMPAIGN_HAS_ENDED);
-
-        // check users must participated before
-        // assert!(exists<Participant>(campaign.participants), ERR_NOT_IN_PARTICIPATE);
-
-        // check users already submit 
-        // assert!(!exists<Participant>(campaign.participants), ERR_USER_ALREADY_SUBMITTED);
-
-        let addr_list = campaign.participant_address_index;
-        let (result, index) = vector::index_of(&addr_list, &sender_addr);
-
-        assert!(result, ERR_ADDRESS_NOT_EXIST_IN_PARTICIPANT);
-        let id_list = campaign.participant_id_index;
-
-        let participant_id = *vector::borrow(&id_list, index);
-        let participant_info = vector::borrow_mut(&mut campaign.participants, participant_id - 1);
-        
-        let new_submit_hash = utf8(b"testsubmithash");
-
-        participant_info.submit_hash = new_submit_hash;
-        participant_info.is_submitted = true;
+    #[view] // Get all participant in specific campaign
+    public fun get_all_participant(campaign_id: u64): vector<Participant> acquires CampaignRegistry {
+        let campaign_registry = borrow_global<CampaignRegistry>(@movement);
+        let campaign = vector::borrow(&campaign_registry.campaigns, campaign_id - 1);
+        campaign.participants
     }
 
-    #[view]
+    #[view] // Get participant id from specific campaign by given participant address
     public fun get_participant_id_from_address(campaign_id: u64, addr: address): u64 acquires CampaignRegistry {
         let campaign_registry = borrow_global<CampaignRegistry>(@movement);
         let campaign = vector::borrow(&campaign_registry.campaigns, campaign_id - 1);
@@ -195,52 +118,27 @@ module movement::Campaign {
         *vector::borrow(&id_list, index)
     }
 
-    #[view]
-    public fun get_all_participant(campaign_id: u64): vector<Participant> acquires CampaignRegistry {
-        let campaign_registry = borrow_global<CampaignRegistry>(@movement);
-        let campaign = vector::borrow(&campaign_registry.campaigns, campaign_id - 1);
-        campaign.participants
+    #[view] // Get specific participant in specific campaign by given participant address
+    public fun get_participant_by_addr(campaign_id: u64, addr: address): Participant acquires CampaignRegistry {
+        let campaign = get_campaign_by_id(campaign_id);
+        let participants = get_all_participant(campaign_id);
+        let participant_id = get_participant_id_from_address(campaign_id, addr);
+        *vector::borrow(&participants, participant_id - 1)
     }
 
-    public entry fun add_validator(admin: &signer, validator_addr: address, rule: String) acquires ValidatorRegistry {
-        let admin_addr = signer::address_of(admin);
-        assert!(admin_addr == @movement, ERR_ONLY_ADMIN);
-
-        let validator_registry = borrow_global_mut<ValidatorRegistry>(@movement);
-        let validators = validator_registry.validators;
-        let validator_length = vector::length(&validators);
-
-        let next_validator_id = validator_length + 1;
-
-        let new_validator = Validator {
-            id: next_validator_id,
-            addr: validator_addr,
-            rule: rule
-        };
-        
-        vector::push_back(&mut validator_registry.validators, new_validator);
+    #[view] // Get specific participant in specific campaign by given participant address
+    public fun get_participant_by_id(campaign_id: u64, participant_id: u64): Participant acquires CampaignRegistry {
+        let campaign = get_campaign_by_id(campaign_id);
+        let participants = get_all_participant(campaign_id);
+        *vector::borrow(&participants, participant_id - 1)
     }
 
-    public entry fun validate_data(validator: &signer, campaign_id: u64, submit_id: u64, is_pass: bool) acquires CampaignRegistry, ValidatorRegistry {
-        let validator_addr = signer::address_of(validator);
-        assert!(is_validator(signer::address_of(validator)), ERR_NOT_VALIDATOR);
-
-        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
-        let campaign = vector::borrow_mut(&mut campaign_registry.campaigns, campaign_id - 1);
-
-        // check users must submit before
-        // assert!(!exists<Participant>(campaign.participants), ERR_USER_IS_NOT_SUBMITTED);
-
-        let id_list = campaign.participant_id_index;
-
-        let participant_id = *vector::borrow(&id_list, submit_id - 1);
-        let participant_info = vector::borrow_mut(&mut campaign.participants, participant_id - 1);
-
-        participant_info.is_validated = true;
-        participant_info.is_validation_pass = is_pass;
+    #[view] // Get validator list
+    public fun get_all_validator(): vector<Validator> acquires ValidatorRegistry {
+        return borrow_global<ValidatorRegistry>(@movement).validators
     }
 
-    #[view]
+    #[view] // Check address is validator or not
     public fun is_validator(addr: address): bool acquires ValidatorRegistry {
         let validators = borrow_global_mut<ValidatorRegistry>(@movement).validators;
         let validator_length = vector::length(&validators);
@@ -263,62 +161,265 @@ module movement::Campaign {
         
     }
 
-    #[view]
-    public fun get_all_validator(): vector<Validator> acquires ValidatorRegistry {
-        return borrow_global<ValidatorRegistry>(@movement).validators
+    // Campaign Creator Function
+
+    // Create campaign and stake reward pool
+    fun create_campaign(sender: &signer, campaign_name: String, duration: u64, reward_pool: u64, reward_per_submit: u64, max_participant: u64) acquires CampaignRegistry {        
+        // Verify campaign duration
+        //
+
+        // Verify minimum reward pool
+        //
+
+        // Verify minimum of max_participant
+        //
+
+        // Verify maximum of max_participant
+        // 
+
+        // Verify reward is enough for every participant
+        assert!(reward_per_submit * max_participant <= reward_pool, ERR_INCORRECT_REWARD_SETTING);
+
+        // Get campaign registry struct
+        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
+        
+        // Count campaign
+        let campaign_registry_length = vector::length(&campaign_registry.campaigns);
+
+        // Get current time in seconds
+        let now = timestamp::now_seconds();
+        
+        // Pre set campaign id
+        let next_campaign_id = campaign_registry_length + 1;
+
+        // Craft new Campaign data
+        let new_campaign = Campaign {
+            campaign_id: next_campaign_id,
+            name: campaign_name,
+            creator: signer::address_of(sender),
+            start_time: now,
+            end_time: now + duration,
+            reward_pool: reward_pool,
+            reward_per_submit: reward_per_submit,
+            current_participant: 0,
+            max_participant: max_participant,
+            participants: vector::empty<Participant>(),
+            participant_id_index: vector::empty<u64>(),
+            participant_address_index: vector::empty<address>()
+        };
+
+        // Store crafted campaign data in the last member of CampaignRegistry vector
+        vector::push_back(&mut campaign_registry.campaigns, new_campaign);
+
+        // Deposit reward
+        // 
+
+        // Verify reward is already deposit
+        // 
     }
 
-    #[view]
-    public fun get_all_campaign(): vector<Campaign> acquires CampaignRegistry {
-        return borrow_global<CampaignRegistry>(@movement).campaigns
+    // User Function
+
+    // Participate in the campaign
+    fun participate_on_campaign(sender: &signer, campaign_id: u64) acquires CampaignRegistry {
+        // Get address of signer (participant)
+        let sender_addr = signer::address_of(sender);
+
+        // Get campaign registry struct
+        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
+
+        // Count campaign
+        let campaign_registry_length = vector::length(&campaign_registry.campaigns);
+        // Verify campaign id is existed
+        assert!(campaign_id > 0 && campaign_id <= campaign_registry_length, ERR_CAMPAIGN_DOES_NOT_EXIST);
+
+        // Get specific campaign
+        let campaign = vector::borrow_mut(&mut campaign_registry.campaigns, campaign_id - 1);
+        
+        // Get current time in seconds
+        let now = timestamp::now_seconds();
+        // Verify campaign is not ended
+        assert!(now < campaign.end_time, ERR_CAMPAIGN_HAS_ENDED);
+        
+        // Get participant list
+        let participant_list = campaign.participant_address_index;
+        // Find index of participant
+        let (result, index) = vector::index_of(&participant_list, &sender_addr);
+        // Verify user is not participated
+        assert!(!result, ERR_USER_ALREADY_PARTICIPATED);
+
+        // Verify participant is not full
+        assert!(campaign.current_participant < campaign.max_participant, ERR_LIMIT_PARTICIPANT_EXISTED);
+
+        // Increase current participant & pre set participant id 
+        campaign.current_participant = campaign.current_participant + 1;
+
+        // Craft new Participant data
+        let new_participant = Participant {
+            participant_id: campaign.current_participant,
+            participant_address: sender_addr,
+            submit_hash: utf8(b""),
+            is_participated: true,
+            is_submitted: false,
+            is_validated: false,
+            is_validation_pass: false,
+            is_claimed_reward: false
+        };
+
+        // Store crafted campaign data in the last member of CampaignRegistry vector
+        vector::push_back(&mut campaign.participants, new_participant);
+
+        // Store participant address and participant id - used for mapping
+        vector::push_back(&mut campaign.participant_id_index, campaign.current_participant);
+        vector::push_back(&mut campaign.participant_address_index, sender_addr);
     }
 
-    public fun get_campaign_by_id(campaign_id: u64) {
-        // let campaign_registry = borrow_global<CampaignRegistry>(@movement);
-        // let campaign_registry_length = vector::length(&campaign_registry.campaigns);
-        // assert!(campaign_id > 0 && campaign_id <= campaign_registry_length, ERR_CAMPAIGN_DOES_NOT_EXIST);
+    // Submit data on the campaign
+    fun submit_on_campaign(sender: &signer, campaign_id: u64, submit_hash: String) acquires CampaignRegistry {
+        // Get address of signer (participant)
+        let sender_addr = signer::address_of(sender);
 
-        // let campaign = vector::borrow(&campaign_registry.campaigns, campaign_id);
-        // return *vector::borrow(campaign, campaign_id)
-        // // let (result, index) = vector::index_of(&ids, &id);
-        // if (result == true) {
-        //     let campaign = get_all_campaign();
-        //     *vector::borrow(&campaign, index)
-        // } else {
-        //     CampaignInfo {
-        //         name: utf8(b"Campaign Name"),
-        //         reward_pool: 0,
-        //         reward_per_submit: 0,
-        //         max_participant: 0,
-        //         current_participant: 0,
-        //         start: 0,
-        //         end: 0,
-        //         whitelist_required: false,
-        //         whitelist_list: vector::empty<address>(),
-        //         participant_addresses: vector::empty<address>(),
-        //         participant_info: vector::empty<ParticipantInfo>(),
-        //         campaign_owner: @0x00
-        //     }
-        // }
+        // Get campaign registry struct
+        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
+        // Get specific campaign
+        let campaign = vector::borrow_mut(&mut campaign_registry.campaigns, campaign_id - 1);
+
+        // Get current time in seconds
+        let now = timestamp::now_seconds();
+
+        // Verify campaign is not ended
+        assert!(now < campaign.end_time, ERR_CAMPAIGN_HAS_ENDED);
+
+        // Get participant list
+        let participant_list = campaign.participant_address_index;
+        // Find index of participant
+        let (result, index) = vector::index_of(&participant_list, &sender_addr);
+        // Verify user is already participate
+        assert!(result, ERR_ADDRESS_NOT_EXIST_IN_PARTICIPANT);
+
+        // Get participant id list
+        let id_list = campaign.participant_id_index;
+        // Get id of participant
+        let participant_id = *vector::borrow(&id_list, index);
+        // Get participant data
+        let participant_info = vector::borrow_mut(&mut campaign.participants, participant_id - 1);
+        
+        // Verify user is not submitted
+        assert!(participant_info.is_submitted == false, ERR_ALREADY_SUBMIT);
+
+        // Craft submit hash - used to verify stored data
+        let new_submit_hash = submit_hash;
+
+        // Store submit hash in participant data and change submit status to true
+        participant_info.submit_hash = new_submit_hash;
+        participant_info.is_submitted = true;
+    }
+
+    // Claim reward
+    public entry fun claim_reward(receiver: &signer, sender: address, campaign_id: u64, participant_id: u64) acquires CampaignRegistry{
+        let receiver_addr = signer::address_of(receiver);
+
+        // Get campaign registry struct
+        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
+        // Get campaign data
+        let campaign = vector::borrow_mut(&mut campaign_registry.campaigns, campaign_id - 1);
+
+        // Get participant data from specific id
+        let participant_info = vector::borrow_mut(&mut campaign.participants, participant_id - 1);
+
+        // Verify submitted data is validated and pass the verification
+        assert!(participant_info.is_validated == true, ERR_SUBMIT_IS_NOT_VALIDATED);
+        assert!(participant_info.is_validation_pass == true, ERR_NOT_PASS_VERIFICATION);
+
+        // Verify user is not claimed 
+        assert!(participant_info.is_claimed_reward == false, ERR_ALREADY_CLAIMED_REWARD);
+        
+        // Transfer staked reward to user
+        // e.g. user_balance = user_balance + campaign.reward_per_submit;
+
+        // Change validate status to true
+        participant_info.is_claimed_reward = true;
+
+    }
+
+    // Validator Function
+
+    // Validate participant submitted data
+    public entry fun validate_data(validator: &signer, campaign_id: u64, submit_id: u64, is_pass: bool) acquires CampaignRegistry, ValidatorRegistry {
+        // Get address of signer (validator)
+        let validator_addr = signer::address_of(validator);
+        // Verify signer is validator
+        assert!(is_validator(signer::address_of(validator)), ERR_NOT_VALIDATOR);
+
+        // Get campaign registry struct
+        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
+        // Get campaign data
+        let campaign = vector::borrow_mut(&mut campaign_registry.campaigns, campaign_id - 1);
+
+        // Get id list of participant
+        let id_list = campaign.participant_id_index;
+        // Get id of specific participant
+        let participant_id = *vector::borrow(&id_list, submit_id - 1);
+        // Get participant data from specific id
+        let participant_info = vector::borrow_mut(&mut campaign.participants, participant_id - 1);
+
+        // Verify user is already submitted
+        assert!(participant_info.is_submitted == true, ERR_USER_IS_NOT_SUBMITTED);
+
+        // Change validate status to true
+        participant_info.is_validated = true;
+        // Change validation status
+        participant_info.is_validation_pass = is_pass;
+    }
+
+    // Admin Function
+
+    // Add validator
+    public entry fun add_validator(admin: &signer, validator_addr: address, rule: String) acquires ValidatorRegistry {
+        // Get address of signer (admin)
+        let admin_addr = signer::address_of(admin);
+
+        // Verify signer is admin
+        assert!(admin_addr == @movement, ERR_ONLY_ADMIN);
+
+        // Get validator registry struct
+        let validator_registry = borrow_global_mut<ValidatorRegistry>(@movement);
+        // Get validator list
+        let validators = validator_registry.validators;
+        // Count validator
+        let validator_length = vector::length(&validators);
+
+        // Pre set validator id
+        let next_validator_id = validator_length + 1;
+
+        // Craft validator data
+        let new_validator = Validator {
+            id: next_validator_id,
+            addr: validator_addr,
+            rule: rule
+        };
+        
+        // Store crafted validator data
+        vector::push_back(&mut validator_registry.validators, new_validator);
     }
 
     #[test(owner = @movement, init_addr = @0x1, participant1 = @0x101, validator1 = @0x999)]
     fun test_function(owner: &signer, init_addr: signer, participant1: &signer, validator1: &signer) acquires CampaignRegistry, ValidatorRegistry {
         timestamp::set_time_has_started_for_testing(&init_addr);
         init_module_internal(owner);
-        create_campaign(owner, utf8(b"Campaign Name 1 Naja"), 90000, 5001, 500, 10);
-        create_campaign(owner, utf8(b"Campaign Name 2 Naja"), 90000, 5002, 500, 10);
-        create_campaign(owner, utf8(b"Campaign Name 3 Naja"), 90000, 5003, 500, 10);
+        create_campaign(owner, utf8(b"Campaign Name 1 Naja"), 90000, 5000, 500, 10);
+        create_campaign(owner, utf8(b"Campaign Name 2 Naja"), 90000, 4000, 400, 10);
+        create_campaign(owner, utf8(b"Campaign Name 3 Naja"), 90000, 3000, 300, 10);
         participate_on_campaign(owner, 1);
         participate_on_campaign(participant1, 1);
-        submit_on_campaign(participant1, 1);
+        submit_on_campaign(participant1, 1, utf8(b"Test submit hash by participant1"));
         add_validator(owner, signer::address_of(validator1), utf8(b"ANY"));
         validate_data(validator1, 1, 2, true);
 
         let campaign_result = get_all_campaign();
         print(&campaign_result);
 
-        submit_on_campaign(owner, 1);
+        submit_on_campaign(owner, 1, utf8(b"Test submit hash by owner"));
 
         let p_id_from_addr = get_participant_id_from_address(1, signer::address_of(participant1));
         print(&p_id_from_addr);
@@ -334,6 +435,15 @@ module movement::Campaign {
         let is_validator2 = is_validator(signer::address_of(owner));
         print(&is_validator2);
         
+        let campaign_1_info = get_campaign_by_id(1);
+        print(&campaign_1_info);
+
+        print(&utf8(b"ggggggg ptcp"));
+        let ptcp111 = get_participant_by_addr(1, signer::address_of(participant1));
+        print(&ptcp111);
+
+        let ptcp222 = get_participant_by_id(1, 2);
+        print(&ptcp222);
     }
 
 }
