@@ -73,7 +73,7 @@ module movement::Campaign {
     }
 
     // Initialization
-    fun init_module_internal(owner: &signer) {
+    fun init_module(owner: &signer) {
         // Store CampaignRegistry struct
         move_to(owner, CampaignRegistry{
             campaigns: vector::empty<Campaign>()
@@ -87,6 +87,12 @@ module movement::Campaign {
     }
 
     // View Function
+
+    #[view]
+    public fun is_initialized(addr: address): bool {
+        exists<CampaignRegistry>(addr) && exists<ValidatorRegistry>(addr)
+    }
+
     #[view] // Get all campaign struct data
     public fun get_all_campaign(): vector<Campaign> acquires CampaignRegistry {
         return borrow_global<CampaignRegistry>(@movement).campaigns
@@ -164,7 +170,7 @@ module movement::Campaign {
     // Campaign Creator Function
 
     // Create campaign and stake reward pool
-    fun create_campaign(sender: &signer, campaign_name: String, duration: u64, reward_pool: u64, reward_per_submit: u64, max_participant: u64) acquires CampaignRegistry {        
+    public entry fun create_campaign(sender: &signer, campaign_name: String, duration: u64, reward_pool: u64, reward_per_submit: u64, max_participant: u64) acquires CampaignRegistry {        
         // Verify campaign duration
         //
 
@@ -221,7 +227,7 @@ module movement::Campaign {
     // User Function
 
     // Participate in the campaign
-    fun participate_on_campaign(sender: &signer, campaign_id: u64) acquires CampaignRegistry {
+    public entry fun participate_on_campaign(sender: &signer, campaign_id: u64) acquires CampaignRegistry {
         // Get address of signer (participant)
         let sender_addr = signer::address_of(sender);
 
@@ -275,7 +281,7 @@ module movement::Campaign {
     }
 
     // Submit data on the campaign
-    fun submit_on_campaign(sender: &signer, campaign_id: u64, submit_hash: String) acquires CampaignRegistry {
+    public entry fun submit_on_campaign(sender: &signer, campaign_id: u64, submit_hash: String) acquires CampaignRegistry {
         // Get address of signer (participant)
         let sender_addr = signer::address_of(sender);
 
@@ -406,7 +412,7 @@ module movement::Campaign {
     #[test(owner = @movement, init_addr = @0x1, participant1 = @0x101, validator1 = @0x999)]
     fun test_function(owner: &signer, init_addr: signer, participant1: &signer, validator1: &signer) acquires CampaignRegistry, ValidatorRegistry {
         timestamp::set_time_has_started_for_testing(&init_addr);
-        init_module_internal(owner);
+        init_module(owner);
         create_campaign(owner, utf8(b"Campaign Name 1 Naja"), 90000, 5000, 500, 10);
         create_campaign(owner, utf8(b"Campaign Name 2 Naja"), 90000, 4000, 400, 10);
         create_campaign(owner, utf8(b"Campaign Name 3 Naja"), 90000, 3000, 300, 10);
