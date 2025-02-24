@@ -12,7 +12,7 @@ Before getting started, ensure you have the following installed:
 
 Run the following command to initialize the Movement CLI:  
 ```
-movement init
+$ movement init
 ```
 
 Select a network. For testing on the testnet, use a custom network and configure it manually:  
