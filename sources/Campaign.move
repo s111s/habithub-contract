@@ -91,7 +91,7 @@ module movement::Campaign {
         id: u64,
         addr: address,
         total_participant: u64,
-        total_submit: u64,
+        total_submitted: u64,
         total_validation_pass: u64,
         total_rewarded: u64,
         participated_campaign_ids: vector<u64>
@@ -269,6 +269,19 @@ module movement::Campaign {
         *vector::borrow(&creator_registry.creators, index)
     }
 
+    #[view] // Get user list
+    public fun get_all_user(): vector<UserStat> acquires UserRegistry {
+        return borrow_global<UserRegistry>(@movement).users
+    }
+
+    #[view] // Get user data by given addr
+    public fun get_user_by_addr(addr: address): UserStat acquires UserRegistry {
+        let user_registry = borrow_global<UserRegistry>(@movement);
+        let user_addr_list = user_registry.user_addr_index;
+        let (result, index) = vector::index_of(&user_addr_list, &addr);
+        *vector::borrow(&user_registry.users, index)
+    }
+
     #[view] // Get wallet list
     public fun get_all_wallet(): vector<Wallet> acquires WalletRegistry {
         return borrow_global<WalletRegistry>(@movement).wallets
@@ -305,7 +318,7 @@ module movement::Campaign {
             id: next_user_id,
             addr: addr,
             total_participant: 0,
-            total_submit: 0,
+            total_submitted: 0,
             total_validation_pass: 0,
             total_rewarded: 0,
             participated_campaign_ids: vector::empty<u64>(),
@@ -518,7 +531,7 @@ module movement::Campaign {
     // User Function
 
     // Participate in the campaign
-    public entry fun participate_on_campaign(sender: &signer, campaign_id: u64) acquires CampaignRegistry {
+    public entry fun participate_on_campaign(sender: &signer, campaign_id: u64) acquires CampaignRegistry, UserRegistry {
         // Get address of signer (participant)
         let sender_addr = signer::address_of(sender);
 
@@ -569,10 +582,24 @@ module movement::Campaign {
         // Store participant address and participant id - used for mapping
         vector::push_back(&mut campaign.participant_id_index, campaign.current_participant);
         vector::push_back(&mut campaign.participant_address_index, sender_addr);
+
+        // Create user if not exist
+        create_user_if_not_exist(sender_addr);
+
+        // Get user data
+        let user_registry = borrow_global_mut<UserRegistry>(@movement);
+        let user_addr_list = user_registry.user_addr_index;
+        let (result, index) = vector::index_of(&user_addr_list, &signer::address_of(sender));
+        let user = vector::borrow_mut(&mut user_registry.users, index);
+
+        // Update total participant
+        user.total_participant = user.total_participant + 1;
+        // Add participated campaign id in participated list
+        vector::push_back(&mut user.participated_campaign_ids, campaign_id);
     }
 
     // Submit data on the campaign
-    public entry fun submit_on_campaign(sender: &signer, campaign_id: u64, submit_hash: String) acquires CampaignRegistry {
+    public entry fun submit_on_campaign(sender: &signer, campaign_id: u64, submit_hash: String) acquires CampaignRegistry, UserRegistry {
         // Get address of signer (participant)
         let sender_addr = signer::address_of(sender);
 
@@ -610,6 +637,15 @@ module movement::Campaign {
         // Store submit hash in participant data and change submit status to true
         participant_info.submit_hash = new_submit_hash;
         participant_info.is_submitted = true;
+
+        // Get user data
+        let user_registry = borrow_global_mut<UserRegistry>(@movement);
+        let user_addr_list = user_registry.user_addr_index;
+        let (result, index) = vector::index_of(&user_addr_list, &sender_addr);
+        let user = vector::borrow_mut(&mut user_registry.users, index);
+
+        // Update total submitted
+        user.total_submitted = user.total_submitted + 1;
     }
 
     // Claim reward
@@ -701,7 +737,7 @@ module movement::Campaign {
     }
 
     #[test(owner = @movement, init_addr = @0x1, creator1 = @0x168, participant1 = @0x101, validator1 = @0x999)]
-    fun test_function(owner: &signer, init_addr: signer, creator1: &signer, participant1: &signer, validator1: &signer) acquires Config, CampaignRegistry, ValidatorRegistry, WalletRegistry, CreatorRegistry {
+    fun test_function(owner: &signer, init_addr: signer, creator1: &signer, participant1: &signer, validator1: &signer) acquires Config, CampaignRegistry, ValidatorRegistry, WalletRegistry, CreatorRegistry, UserRegistry {
         timestamp::set_time_has_started_for_testing(&init_addr);
         init_module(owner);
         faucet(creator1);
@@ -756,6 +792,10 @@ module movement::Campaign {
         // create_wallet_if_not_exist(signer::address_of(owner));
         // let aw = get_all_wallet();
         // print(&aw);
+
+        print(&utf8(b"Get User"));
+        let uba = get_user_by_addr(signer::address_of(creator1));
+        print(&uba);
     }
 
 }
