@@ -3,44 +3,32 @@ module movement::Campaign {
     use std::string::{String, utf8};
     use std::timestamp;
     use std::signer;
-    use std::debug::print;
-
-    // Config
-    const SEC_IN_1_DAY: u64 = 86400;
 
     // Error Code
-    const ERR_PAST_START_TIME: u64 = 101;
-    const ERR_MINIMUM_PERIOD: u64 = 102;
-    const ERR_MAX_PARTICIPANT_EXISTED: u64 = 104;
-    const ERR_CAMPAIGN_IS_NOT_IN_START_TIME: u64 = 105;
-    const ERR_CAMPAIGN_IS_ENDED: u64 = 106;
-    const ERR_NOT_IN_WHITELIST: u64 = 107;
-    const ERR_ALREADY_JOIN_THIS_CAMPAIGN: u64 = 108;
-    const ERR_LIVE_CAMPAIGN_ALREADY_EXISTS: u64 = 1001;
-    const ERR_CAMPAIGN_DOES_NOT_EXIST: u64 = 1002;
-    const ERR_CAMPAIGN_HAS_ENDED: u64 = 1003;
-    const ERR_USER_ALREADY_PARTICIPATED: u64 = 1004;
-    const ERR_LIMIT_PARTICIPANT_EXISTED: u64 = 1005;
-    const ERR_ADDRESS_NOT_EXIST_IN_PARTICIPANT: u64 = 1008;
-    const ERR_ONLY_ADMIN: u64 = 1009;
-    const ERR_NOT_VALIDATOR: u64 = 1010;
-    const ERR_INCORRECT_REWARD_SETTING: u64 = 1011;
-    const ERR_ALREADY_SUBMIT: u64 = 1012;
-    const ERR_USER_IS_NOT_SUBMITTED: u64 = 1013;
-    const ERR_SUBMIT_IS_NOT_VALIDATED: u64 = 1014;
-    const ERR_NOT_PASS_VERIFICATION: u64 = 1015;
-    const ERR_ALREADY_CLAIMED_REWARD: u64 = 1016;
-    const ERR_LOWER_THAN_MINIMUM_DURATION: u64 = 1017;
-    const ERR_LOWER_THAN_MINIMUM_REWARD_POOL: u64 = 1018;
-    const ERR_OUT_OF_PARTICIPANT_RANGE: u64 = 1019;
-    const ERR_CREATOR_WALLET_DOES_NOT_EXIST: u64 = 1020;
-    const ERR_INSUFFICIENT_CREATOR_BALANCE: u64 = 1021;
-    const ERR_RECEIVER_WALLET_DOES_NOT_EXIST: u64 = 1022;
-    const ERR_INSUFFICIENT_THIS_CONTRACT_BALANCE: u64 = 1023;
-    const ERR_INCORRECT_DECREASING_BALANCE: u64 = 1024;
-    const ERR_ALREADY_BE_A_VALIDATOR: u64 = 1025;
-    const ERR_ADDRESS_IS_NOT_VALIDATOR: u64 = 1026;
-    const ERR_ONLY_PENDING_ADMIN: u64 = 1027;
+    const ERR_ADDRESS_NOT_EXIST_IN_PARTICIPANT: u64 = 101;
+    const ERR_LOWER_THAN_MINIMUM_DURATION: u64 = 102;
+    const ERR_LOWER_THAN_MINIMUM_REWARD_POOL: u64 = 103;
+    const ERR_OUT_OF_PARTICIPANT_RANGE: u64 = 104;
+    const ERR_INCORRECT_REWARD_SETTING: u64 = 105;
+    const ERR_CREATOR_WALLET_DOES_NOT_EXIST: u64 = 106;
+    const ERR_INSUFFICIENT_CREATOR_BALANCE: u64 = 107;
+    const ERR_CAMPAIGN_DOES_NOT_EXIST: u64 = 108;
+    const ERR_CAMPAIGN_HAS_ENDED: u64 = 109;
+    const ERR_USER_ALREADY_PARTICIPATED: u64 = 110;
+    const ERR_LIMIT_PARTICIPANT_EXISTED: u64 = 111;
+    const ERR_ALREADY_SUBMIT: u64 = 112;
+    const ERR_SUBMIT_IS_NOT_VALIDATED: u64 = 113;
+    const ERR_NOT_PASS_VERIFICATION: u64 = 114;
+    const ERR_ALREADY_CLAIMED_REWARD: u64 = 115;
+    const ERR_INSUFFICIENT_THIS_CONTRACT_BALANCE: u64 = 116;
+    const ERR_INCORRECT_DECREASING_BALANCE: u64 = 117;
+    const ERR_RECEIVER_WALLET_DOES_NOT_EXIST: u64 = 118;
+    const ERR_NOT_VALIDATOR: u64 = 119;
+    const ERR_USER_IS_NOT_SUBMITTED: u64 = 120;
+    const ERR_ONLY_ADMIN: u64 = 121;
+    const ERR_ALREADY_BE_A_VALIDATOR: u64 = 122;
+    const ERR_ADDRESS_IS_NOT_VALIDATOR: u64 = 123;
+    const ERR_ONLY_PENDING_ADMIN: u64 = 124;
 
     // Struct
     struct CampaignRegistry has key, store, copy, drop {
@@ -480,7 +468,7 @@ module movement::Campaign {
         // Verify minimum reward pool
         assert!(reward_pool >= config.min_reward_pool, ERR_LOWER_THAN_MINIMUM_REWARD_POOL);
 
-        // Verify minimum of max_participant
+        // Verify minimum and maximum of max_participant
         assert!(max_participant >= config.min_total_participant && max_participant <= config.max_total_participant, ERR_OUT_OF_PARTICIPANT_RANGE);
 
         // Verify reward is enough for every participant
@@ -923,6 +911,9 @@ module movement::Campaign {
         config.admin = signer_addr;
         config.pending_admin = @0x00;
     }
+
+    #[test_only]
+    use std::debug::print;
 
     #[test(owner = @movement, init_addr = @0x1, creator1 = @0x168, participant1 = @0x101, validator1 = @0x999)]
     fun test_function(owner: &signer, init_addr: signer, creator1: &signer, participant1: &signer, validator1: &signer) acquires Config, CampaignRegistry, ValidatorRegistry, WalletRegistry, CreatorRegistry, UserRegistry {
