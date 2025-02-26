@@ -123,7 +123,7 @@ module movement::Campaign {
     }
 
     // Initialization
-    fun init_module(owner: &signer) {
+    fun init_module(owner: &signer) acquires WalletRegistry {
         // Store CampaignRegistry struct
         move_to(owner, CampaignRegistry{
             campaigns: vector::empty<Campaign>()
@@ -159,7 +159,10 @@ module movement::Campaign {
             max_total_participant: 1000000,
             reward_token: @0x00,
             admin: @movement
-        })
+        });
+
+        // create wallet of this addr
+        create_wallet_if_not_exist(@movement);
     }
 
     // View Function
@@ -243,6 +246,26 @@ module movement::Campaign {
         
     }
 
+    #[view] // Get wallet list
+    public fun get_all_wallet(): vector<Wallet> acquires WalletRegistry {
+        return borrow_global<WalletRegistry>(@movement).wallets
+    }
+
+    #[view] // Get wallet data by given addr
+    public fun get_wallet_by_addr(addr: address): Wallet acquires WalletRegistry {
+        let wallet_registry = borrow_global<WalletRegistry>(@movement);
+        let wallet_addr_list = wallet_registry.wallet_addr_index;
+        let (result, index) = vector::index_of(&wallet_addr_list, &addr);
+        *vector::borrow(&wallet_registry.wallets, index)
+    }
+
+    #[view] // Get wallet balance
+    public fun balance_of(addr: address): u64 acquires WalletRegistry {
+        let wallet = get_wallet_by_addr(addr);
+        wallet.balance
+    }
+        
+
     // #[view] // 
     // public fun get_wallet_id_by_address(addr: address): Wallet acquires WalletRegistry {
     //     let wallets = borrow_global_mut<WalletRegistry>(@movement).wallets;
@@ -268,9 +291,26 @@ module movement::Campaign {
     //     let (result, index) = vector::index_of(&addr_list, &addr);
     // }
 
-    #[view] // Get wallet list
-    public fun get_all_wallet(): vector<Wallet> acquires WalletRegistry {
-        return borrow_global<WalletRegistry>(@movement).wallets
+    
+
+    // Wallet Function
+
+    // Faucet for testnet only
+    public entry fun faucet(wallet: &signer) acquires WalletRegistry {
+        let wallet_addr = signer::address_of(wallet);
+        create_wallet_if_not_exist(wallet_addr);
+        
+        let wallet_registry = borrow_global_mut<WalletRegistry>(@movement);
+        
+        // Get wallet address list
+        let wallet_addr_list = wallet_registry.wallet_addr_index;
+
+        // find given addr in wallet list
+        let (result, index) = vector::index_of(&wallet_addr_list, &wallet_addr);
+
+        let wallet = vector::borrow_mut(&mut wallet_registry.wallets, index);
+
+        wallet.balance = wallet.balance + 1000000000;
     }
 
     fun create_wallet_if_not_exist(addr: address) acquires WalletRegistry {
@@ -592,12 +632,18 @@ module movement::Campaign {
         let ptcp222 = get_participant_by_id(1, 2);
         print(&ptcp222);
 
+        print(&utf8(b"Before"));
+        let ow = get_wallet_by_addr(signer::address_of(owner));
+        print(&ow);
+        faucet(owner);
+        print(&utf8(b"After"));
+        let owa = get_wallet_by_addr(signer::address_of(owner)); 
+        print(&owa);
 
-
-        create_wallet_if_not_exist(signer::address_of(participant1));
-        create_wallet_if_not_exist(signer::address_of(owner));
-        let aw = get_all_wallet();
-        print(&aw);
+        // create_wallet_if_not_exist(signer::address_of(participant1));
+        // create_wallet_if_not_exist(signer::address_of(owner));
+        // let aw = get_all_wallet();
+        // print(&aw);
     }
 
 }
