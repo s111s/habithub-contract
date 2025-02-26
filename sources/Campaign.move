@@ -40,6 +40,7 @@ module movement::Campaign {
     const ERR_INCORRECT_DECREASING_BALANCE: u64 = 1024;
     const ERR_ALREADY_BE_A_VALIDATOR: u64 = 1025;
     const ERR_ADDRESS_IS_NOT_VALIDATOR: u64 = 1026;
+    const ERR_ONLY_PENDING_ADMIN: u64 = 1027;
 
     // Struct
     struct CampaignRegistry has key, store, copy, drop {
@@ -134,6 +135,7 @@ module movement::Campaign {
         min_total_participant: u64,
         max_total_participant: u64,
         reward_token: address,
+        pending_admin: address,
         admin: address
     }
 
@@ -179,16 +181,17 @@ module movement::Campaign {
             min_total_participant: 1,
             max_total_participant: 1000000,
             reward_token: @0x00,
+            pending_admin: @0x00,
             admin: @movement
         });
 
-        // create wallet of this addr
+        // Create wallet of this addr
         create_wallet_if_not_exist(@movement);
     }
 
     // View Function
 
-    #[view]
+    #[view] // Check contract initialization
     public fun is_initialized(addr: address): bool {
         exists<CampaignRegistry>(addr) && exists<ValidatorRegistry>(addr)
     }
@@ -264,8 +267,18 @@ module movement::Campaign {
     public fun get_creator_by_addr(addr: address): CreatorStat acquires CreatorRegistry {
         let creator_registry = borrow_global<CreatorRegistry>(@movement);
         let creator_addr_list = creator_registry.creator_addr_index;
-        let (_result, index) = vector::index_of(&creator_addr_list, &addr);
-        *vector::borrow(&creator_registry.creators, index)
+        let (result, index) = vector::index_of(&creator_addr_list, &addr);
+        if (result) {
+            *vector::borrow(&creator_registry.creators, index)
+        } else {
+            CreatorStat {
+                id: 0,
+                addr: addr,
+                total_campaign_created: 0,
+                total_reward_paid: 0,
+                created_campaign_ids: vector::empty<u64>()
+            }
+        }
     }
 
     #[view] // Get user list
@@ -878,7 +891,37 @@ module movement::Campaign {
         config.min_total_participant = min_total_participant;
         config.max_total_participant = max_total_participant;
         config.reward_token = reward_token;
-        // config.admin = admin_addr;
+    }
+
+    // Transfer admin
+    public entry fun transfer_admin(sender: &signer, pending_admin: address) acquires Config {
+        // Get address of signer (admin)
+        let signer_addr = signer::address_of(sender);
+
+        // Get config data
+        let config = borrow_global_mut<Config>(@movement);
+
+        // Verify signer is admin
+        assert!(signer_addr == config.admin, ERR_ONLY_ADMIN);
+
+        // Update pending admin address
+        config.pending_admin = pending_admin;
+    }
+
+    // Claim admin
+    public entry fun claim_admin(sender: &signer) acquires Config {
+        // Get address of signer (admin)
+        let signer_addr = signer::address_of(sender);
+
+        // Get config data
+        let config = borrow_global_mut<Config>(@movement);
+
+        // Verify signer is pending admin
+        assert!(signer_addr == config.pending_admin, ERR_ONLY_PENDING_ADMIN);
+
+        // Set new admin address and reset pending admin
+        config.admin = signer_addr;
+        config.pending_admin = @0x00;
     }
 
     #[test(owner = @movement, init_addr = @0x1, creator1 = @0x168, participant1 = @0x101, validator1 = @0x999)]
