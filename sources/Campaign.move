@@ -504,9 +504,11 @@ module movement::Campaign {
         create_creator_if_not_exist(creator_addr);
 
         // Get creator data
-        let creators = borrow_global<CreatorRegistry>(@movement);
-        // Update creator data
-        let creator = get_creator_by_addr(creator_addr);
+        let creator_registry = borrow_global_mut<CreatorRegistry>(@movement);
+        let creator_addr_list = creator_registry.creator_addr_index;
+        let (result, index) = vector::index_of(&creator_addr_list, &creator_addr);
+        let creator = vector::borrow_mut(&mut creator_registry.creators, index);
+
         // Update total campaign created
         creator.total_campaign_created = creator.total_campaign_created + 1;
         // Add created campaign id in created list
@@ -747,6 +749,9 @@ module movement::Campaign {
         let tbl = get_wallet_by_addr(signer::address_of(owner));
         print(&tbl);
 
+        print(&utf8(b"Get Creator"));
+        let cat = get_creator_by_addr(signer::address_of(creator1));
+        print(&cat);
         // create_wallet_if_not_exist(signer::address_of(participant1));
         // create_wallet_if_not_exist(signer::address_of(owner));
         // let aw = get_all_wallet();
