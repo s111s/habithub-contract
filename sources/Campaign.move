@@ -256,6 +256,19 @@ module movement::Campaign {
         
     }
 
+    #[view] // Get creator list
+    public fun get_all_creator(): vector<CreatorStat> acquires CreatorRegistry {
+        return borrow_global<CreatorRegistry>(@movement).creators
+    }
+
+    #[view] // Get creator data by given addr
+    public fun get_creator_by_addr(addr: address): CreatorStat acquires CreatorRegistry {
+        let creator_registry = borrow_global<CreatorRegistry>(@movement);
+        let creator_addr_list = creator_registry.creator_addr_index;
+        let (result, index) = vector::index_of(&creator_addr_list, &addr);
+        *vector::borrow(&creator_registry.creators, index)
+    }
+
     #[view] // Get wallet list
     public fun get_all_wallet(): vector<Wallet> acquires WalletRegistry {
         return borrow_global<WalletRegistry>(@movement).wallets
@@ -281,13 +294,13 @@ module movement::Campaign {
         // Get user registry struct
         let user_registry = borrow_global_mut<UserRegistry>(@movement);
         
-        // Count wallet
+        // Count user
         let user_registry_length = vector::length(&user_registry.users);
 
-        // Pre set campaign id
+        // Pre set user id
         let next_user_id = user_registry_length + 1;
 
-        // Craft new wallet data
+        // Craft new user data
         let new_user = UserStat {
             id: next_user_id,
             addr: addr,
@@ -298,10 +311,10 @@ module movement::Campaign {
             participated_campaign_ids: vector::empty<u64>(),
         };
 
-        // Get wallet address list
+        // Get user address list
         let user_addr_list = user_registry.user_addr_index;
 
-        // find given addr in wallet list
+        // find given addr in user address list
         let (result, index) = vector::index_of(&user_addr_list, &addr);
 
         // Create new user and store index if wallet does not exist
@@ -317,6 +330,41 @@ module movement::Campaign {
 
     // Creator data function
     
+    fun create_creator_if_not_exist(addr: address) acquires CreatorRegistry {
+        // Get creator registry struct
+        let creator_registry = borrow_global_mut<CreatorRegistry>(@movement);
+        
+        // Count creator
+        let creator_registry_length = vector::length(&creator_registry.creators);
+
+        // Pre set creator id
+        let next_creator_id = creator_registry_length + 1;
+
+        // Craft new creator data
+        let new_creator = CreatorStat {
+            id: next_creator_id,
+            addr: addr,
+            total_campaign_created: 0,
+            total_reward_paid: 0,
+            created_campaign_ids: vector::empty<u64>()
+        };
+
+        // Get creator address list
+        let creator_addr_list = creator_registry.creator_addr_index;
+
+        // find given addr in creator address list
+        let (result, index) = vector::index_of(&creator_addr_list, &addr);
+
+        // Create new user and store index if wallet does not exist
+        if (!result) {
+            // Store new user data
+            vector::push_back(&mut creator_registry.creators, new_creator);
+
+            // Store user address and id - used for mapping
+            vector::push_back(&mut creator_registry.creator_id_index, next_creator_id);
+            vector::push_back(&mut creator_registry.creator_addr_index, addr);
+        }
+    }
 
     // Wallet Function
 
@@ -376,7 +424,10 @@ module movement::Campaign {
     // Campaign Creator Function
 
     // Create campaign and stake reward pool
-    public entry fun create_campaign(sender: &signer, campaign_name: String, duration: u64, reward_pool: u64, reward_per_submit: u64, max_participant: u64) acquires Config, CampaignRegistry, WalletRegistry {        
+    public entry fun create_campaign(sender: &signer, campaign_name: String, duration: u64, reward_pool: u64, reward_per_submit: u64, max_participant: u64) acquires Config, CampaignRegistry, WalletRegistry, CreatorRegistry {
+        // Get creator address
+        let creator_addr = signer::address_of(sender);
+        // Get config data
         let config = borrow_global<Config>(@movement);
         // Verify campaign duration
         assert!(duration >= config.min_duration, ERR_LOWER_THAN_MINIMUM_DURATION);
@@ -406,7 +457,7 @@ module movement::Campaign {
         let new_campaign = Campaign {
             campaign_id: next_campaign_id,
             name: campaign_name,
-            creator: signer::address_of(sender),
+            creator: creator_addr,
             start_time: now,
             end_time: now + duration,
             reward_pool: reward_pool,
@@ -426,7 +477,7 @@ module movement::Campaign {
         let wallet_addr_list = wallet_registry.wallet_addr_index;
 
         // Get creator wallet index and data
-        let (creator_result, creator_index) = vector::index_of(&wallet_addr_list, &signer::address_of(sender));
+        let (creator_result, creator_index) = vector::index_of(&wallet_addr_list, &creator_addr);
         let creator_wallet = vector::borrow_mut(&mut wallet_registry.wallets, creator_index);
         // Verify creator wallet is exits
         assert!(creator_result, ERR_CREATOR_WALLET_DOES_NOT_EXIST);
@@ -448,6 +499,18 @@ module movement::Campaign {
 
         // Verify reward is already deposit
         assert!(this_balance_before + reward_pool == this_wallet.balance);
+
+        // Create creator if not exist
+        create_creator_if_not_exist(creator_addr);
+
+        // Get creator data
+        let creators = borrow_global<CreatorRegistry>(@movement);
+        // Update creator data
+        let creator = get_creator_by_addr(creator_addr);
+        // Update total campaign created
+        creator.total_campaign_created = creator.total_campaign_created + 1;
+        // Add created campaign id in created list
+        vector::push_back(&mut creator.created_campaign_ids, next_campaign_id);
     }
 
     // User Function
@@ -636,7 +699,7 @@ module movement::Campaign {
     }
 
     #[test(owner = @movement, init_addr = @0x1, creator1 = @0x168, participant1 = @0x101, validator1 = @0x999)]
-    fun test_function(owner: &signer, init_addr: signer, creator1: &signer, participant1: &signer, validator1: &signer) acquires Config, CampaignRegistry, ValidatorRegistry, WalletRegistry {
+    fun test_function(owner: &signer, init_addr: signer, creator1: &signer, participant1: &signer, validator1: &signer) acquires Config, CampaignRegistry, ValidatorRegistry, WalletRegistry, CreatorRegistry {
         timestamp::set_time_has_started_for_testing(&init_addr);
         init_module(owner);
         faucet(creator1);
