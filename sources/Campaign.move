@@ -35,6 +35,8 @@ module movement::Campaign {
     const ERR_OUT_OF_PARTICIPANT_RANGE: u64 = 1019;
     const ERR_CREATOR_WALLET_DOES_NOT_EXIST: u64 = 1020;
     const ERR_INSUFFICIENT_CREATOR_BALANCE: u64 = 1021;
+    const ERR_RECEIVER_WALLET_DOES_NOT_EXIST: u64 = 1022;
+    const ERR_INSUFFICIENT_THIS_CONTRACT_BALANCE: u64 = 1023;
 
     // Struct
     struct CampaignRegistry has key, store, copy, drop {
@@ -51,6 +53,8 @@ module movement::Campaign {
         reward_per_submit: u64,
         current_participant: u64,
         max_participant: u64,
+        data_type: String,
+        data_validation_type: String,
         participants: vector<Participant>,
         participant_id_index: vector<u64>,
         participant_address_index: vector<address>
@@ -279,7 +283,19 @@ module movement::Campaign {
         let user_registry = borrow_global<UserRegistry>(@movement);
         let user_addr_list = user_registry.user_addr_index;
         let (result, index) = vector::index_of(&user_addr_list, &addr);
-        *vector::borrow(&user_registry.users, index)
+        if (result) {
+            *vector::borrow(&user_registry.users, index)
+        } else {
+            UserStat {
+                id: 0,
+                addr: addr,
+                total_participant: 0,
+                total_submitted: 0,
+                total_validation_pass: 0,
+                total_rewarded: 0,
+                participated_campaign_ids: vector::empty<u64>(),
+            }
+        }
     }
 
     #[view] // Get wallet list
@@ -292,7 +308,15 @@ module movement::Campaign {
         let wallet_registry = borrow_global<WalletRegistry>(@movement);
         let wallet_addr_list = wallet_registry.wallet_addr_index;
         let (result, index) = vector::index_of(&wallet_addr_list, &addr);
-        *vector::borrow(&wallet_registry.wallets, index)
+        if (result) { 
+            *vector::borrow(&wallet_registry.wallets, index)
+        } else {
+            Wallet {
+                id: 0,
+                addr: addr,
+                balance: 0
+            }
+        }
     }
 
     #[view] // Get wallet balance
@@ -437,7 +461,7 @@ module movement::Campaign {
     // Campaign Creator Function
 
     // Create campaign and stake reward pool
-    public entry fun create_campaign(sender: &signer, campaign_name: String, duration: u64, reward_pool: u64, reward_per_submit: u64, max_participant: u64) acquires Config, CampaignRegistry, WalletRegistry, CreatorRegistry {
+    public entry fun create_campaign(sender: &signer, campaign_name: String, duration: u64, reward_pool: u64, reward_per_submit: u64, max_participant: u64, data_type: String, data_validation_type: String) acquires Config, CampaignRegistry, WalletRegistry, CreatorRegistry {
         // Get creator address
         let creator_addr = signer::address_of(sender);
         // Get config data
@@ -477,6 +501,8 @@ module movement::Campaign {
             reward_per_submit: reward_per_submit,
             current_participant: 0,
             max_participant: max_participant,
+            data_type: data_type,
+            data_validation_type: data_validation_type,
             participants: vector::empty<Participant>(),
             participant_id_index: vector::empty<u64>(),
             participant_address_index: vector::empty<address>()
@@ -649,13 +675,23 @@ module movement::Campaign {
     }
 
     // Claim reward
-    public entry fun claim_reward(receiver: &signer, sender: address, campaign_id: u64, participant_id: u64) acquires CampaignRegistry{
+    public entry fun claim_reward(receiver: &signer, campaign_id: u64) acquires CampaignRegistry, WalletRegistry, UserRegistry, CreatorRegistry {
+        // Get receiver address
         let receiver_addr = signer::address_of(receiver);
-
         // Get campaign registry struct
         let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
         // Get campaign data
         let campaign = vector::borrow_mut(&mut campaign_registry.campaigns, campaign_id - 1);
+
+        // Verify user is in participant list
+        // assert!(result, ERR_ADDRESS_NOT_EXIST_IN_PARTICIPANT);
+        
+        let addr_list = campaign.participant_address_index;
+
+        let (result, index) = vector::index_of(&addr_list, &receiver_addr);
+        let id_list = campaign.participant_id_index;
+
+        let participant_id = *vector::borrow_mut(&mut id_list, index);
 
         // Get participant data from specific id
         let participant_info = vector::borrow_mut(&mut campaign.participants, participant_id - 1);
@@ -665,20 +701,64 @@ module movement::Campaign {
         assert!(participant_info.is_validation_pass == true, ERR_NOT_PASS_VERIFICATION);
 
         // Verify user is not claimed 
-        assert!(participant_info.is_claimed_reward == false, ERR_ALREADY_CLAIMED_REWARD);
-        
-        // Transfer staked reward to user
-        // e.g. user_balance = user_balance + campaign.reward_per_submit;
+        assert!(!participant_info.is_claimed_reward, ERR_ALREADY_CLAIMED_REWARD);
 
+        // Create wallet if not exist
+        create_wallet_if_not_exist(receiver_addr);
+
+        // Get walletdata
+        let wallet_registry = borrow_global_mut<WalletRegistry>(@movement);
+        let wallet_addr_list = wallet_registry.wallet_addr_index;
+
+        // Get this contract wallet
+        let this_addr = @movement;
+        let (this_result, this_index) = vector::index_of(&wallet_addr_list, &this_addr);
+        let this_wallet = vector::borrow_mut(&mut wallet_registry.wallets, this_index);
+        
+        // get this contract balance before deposit
+        let this_balance_before = this_wallet.balance;
+
+        // Verify this contract balance
+        assert!(this_wallet.balance >= campaign.reward_per_submit, ERR_INSUFFICIENT_THIS_CONTRACT_BALANCE);
+        // Decrease this contract balance
+        this_wallet.balance = this_wallet.balance - campaign.reward_per_submit;
+
+        // Get creator wallet index and data
+        let (receiver_result, receiver_index) = vector::index_of(&wallet_addr_list, &receiver_addr);
+        // Verify creator wallet is exits
+        assert!(receiver_result, ERR_RECEIVER_WALLET_DOES_NOT_EXIST);
+        // Get receiver wallet data
+        let receiver_wallet = vector::borrow_mut(&mut wallet_registry.wallets, receiver_index);
+
+        // Increase receiver balance
+        receiver_wallet.balance = receiver_wallet.balance + campaign.reward_per_submit;
+        
         // Change validate status to true
         participant_info.is_claimed_reward = true;
 
+        // Get user data
+        let user_registry = borrow_global_mut<UserRegistry>(@movement);
+        let user_addr_list = user_registry.user_addr_index;
+        let (result, index) = vector::index_of(&user_addr_list, &receiver_addr);
+        let user = vector::borrow_mut(&mut user_registry.users, index);
+
+        // Update total rewarded
+        user.total_rewarded = user.total_rewarded + campaign.reward_per_submit;
+
+        // Get creator data
+        let creator_registry = borrow_global_mut<CreatorRegistry>(@movement);
+        let creator_addr_list = creator_registry.creator_addr_index;
+        let (result, index) = vector::index_of(&creator_addr_list, &campaign.creator);
+        let creator = vector::borrow_mut(&mut creator_registry.creators, index);
+
+        // Update total campaign created
+        creator.total_reward_paid = creator.total_reward_paid + campaign.reward_per_submit;
     }
 
     // Validator Function
 
     // Validate participant submitted data
-    public entry fun validate_data(validator: &signer, campaign_id: u64, submit_id: u64, is_pass: bool) acquires CampaignRegistry, ValidatorRegistry {
+    public entry fun validate_data(validator: &signer, campaign_id: u64, submit_id: u64, is_pass: bool) acquires CampaignRegistry, ValidatorRegistry, UserRegistry {
         // Get address of signer (validator)
         let validator_addr = signer::address_of(validator);
         // Verify signer is validator
@@ -703,6 +783,17 @@ module movement::Campaign {
         participant_info.is_validated = true;
         // Change validation status
         participant_info.is_validation_pass = is_pass;
+
+        // Get user data
+        let user_registry = borrow_global_mut<UserRegistry>(@movement);
+        let user_addr_list = user_registry.user_addr_index;
+        let (result, index) = vector::index_of(&user_addr_list, &participant_info.participant_address);
+        let user = vector::borrow_mut(&mut user_registry.users, index);
+
+        // Update total validation if it pass
+        if (is_pass) {
+            user.total_validation_pass = user.total_validation_pass + 1;
+        }
     }
 
     // Admin Function
@@ -741,14 +832,15 @@ module movement::Campaign {
         timestamp::set_time_has_started_for_testing(&init_addr);
         init_module(owner);
         faucet(creator1);
-        create_campaign(creator1, utf8(b"Campaign Name 1 Naja"), 90000, 5000, 500, 10);
-        create_campaign(creator1, utf8(b"Campaign Name 2 Naja"), 90000, 4000, 400, 10);
-        create_campaign(creator1, utf8(b"Campaign Name 3 Naja"), 90000, 3000, 300, 10);
+        create_campaign(creator1, utf8(b"Campaign Name 1 Naja"), 90000, 5000, 500, 10, utf8(b"Image"), utf8(b"Shopping Receipt"));
+        create_campaign(creator1, utf8(b"Campaign Name 2 Naja"), 90000, 4000, 400, 10, utf8(b"Image"), utf8(b"Shopping Receipt"));
+        create_campaign(creator1, utf8(b"Campaign Name 3 Naja"), 90000, 3000, 300, 10, utf8(b"Image"), utf8(b"Shopping Receipt"));
         participate_on_campaign(owner, 1);
         participate_on_campaign(participant1, 1);
         submit_on_campaign(participant1, 1, utf8(b"Test submit hash by participant1"));
         add_validator(owner, signer::address_of(validator1), utf8(b"ANY"));
         validate_data(validator1, 1, 2, true);
+        claim_reward(participant1, 1);
 
         let campaign_result = get_all_campaign();
         print(&campaign_result);
@@ -785,6 +877,10 @@ module movement::Campaign {
         let tbl = get_wallet_by_addr(signer::address_of(owner));
         print(&tbl);
 
+        print(&utf8(b"Participant bal"));
+        let pbl = get_wallet_by_addr(signer::address_of(participant1));
+        print(&pbl);
+
         print(&utf8(b"Get Creator"));
         let cat = get_creator_by_addr(signer::address_of(creator1));
         print(&cat);
@@ -793,9 +889,13 @@ module movement::Campaign {
         // let aw = get_all_wallet();
         // print(&aw);
 
-        print(&utf8(b"Get User"));
-        let uba = get_user_by_addr(signer::address_of(creator1));
-        print(&uba);
+        print(&utf8(b"Get Creator c1"));
+        let uc1 = get_user_by_addr(signer::address_of(creator1));
+        print(&uc1);
+
+        print(&utf8(b"Get User P1"));
+        let up1 = get_user_by_addr(signer::address_of(participant1));
+        print(&up1);
     }
 
 }
