@@ -37,6 +37,7 @@ module movement::Campaign {
     const ERR_INSUFFICIENT_CREATOR_BALANCE: u64 = 1021;
     const ERR_RECEIVER_WALLET_DOES_NOT_EXIST: u64 = 1022;
     const ERR_INSUFFICIENT_THIS_CONTRACT_BALANCE: u64 = 1023;
+    const ERR_INCORRECT_DECREASING_BALANCE: u64 = 1024;
 
     // Struct
     struct CampaignRegistry has key, store, copy, drop {
@@ -219,7 +220,6 @@ module movement::Campaign {
 
     #[view] // Get specific participant in specific campaign by given participant address
     public fun get_participant_by_addr(campaign_id: u64, addr: address): Participant acquires CampaignRegistry {
-        let campaign = get_campaign_by_id(campaign_id);
         let participants = get_all_participant(campaign_id);
         let participant_id = get_participant_id_from_address(campaign_id, addr);
         *vector::borrow(&participants, participant_id - 1)
@@ -227,7 +227,6 @@ module movement::Campaign {
 
     #[view] // Get specific participant in specific campaign by given participant address
     public fun get_participant_by_id(campaign_id: u64, participant_id: u64): Participant acquires CampaignRegistry {
-        let campaign = get_campaign_by_id(campaign_id);
         let participants = get_all_participant(campaign_id);
         *vector::borrow(&participants, participant_id - 1)
     }
@@ -269,7 +268,7 @@ module movement::Campaign {
     public fun get_creator_by_addr(addr: address): CreatorStat acquires CreatorRegistry {
         let creator_registry = borrow_global<CreatorRegistry>(@movement);
         let creator_addr_list = creator_registry.creator_addr_index;
-        let (result, index) = vector::index_of(&creator_addr_list, &addr);
+        let (_result, index) = vector::index_of(&creator_addr_list, &addr);
         *vector::borrow(&creator_registry.creators, index)
     }
 
@@ -352,7 +351,7 @@ module movement::Campaign {
         let user_addr_list = user_registry.user_addr_index;
 
         // find given addr in user address list
-        let (result, index) = vector::index_of(&user_addr_list, &addr);
+        let (result, _index) = vector::index_of(&user_addr_list, &addr);
 
         // Create new user and store index if wallet does not exist
         if (!result) {
@@ -390,7 +389,7 @@ module movement::Campaign {
         let creator_addr_list = creator_registry.creator_addr_index;
 
         // find given addr in creator address list
-        let (result, index) = vector::index_of(&creator_addr_list, &addr);
+        let (result, _index) = vector::index_of(&creator_addr_list, &addr);
 
         // Create new user and store index if wallet does not exist
         if (!result) {
@@ -416,7 +415,7 @@ module movement::Campaign {
         let wallet_addr_list = wallet_registry.wallet_addr_index;
 
         // find given addr in wallet list
-        let (result, index) = vector::index_of(&wallet_addr_list, &wallet_addr);
+        let (_result, index) = vector::index_of(&wallet_addr_list, &wallet_addr);
 
         let wallet = vector::borrow_mut(&mut wallet_registry.wallets, index);
 
@@ -445,7 +444,7 @@ module movement::Campaign {
         let wallet_addr_list = wallet_registry.wallet_addr_index;
 
         // find given addr in wallet list
-        let (result, index) = vector::index_of(&wallet_addr_list, &addr);
+        let (result, _index) = vector::index_of(&wallet_addr_list, &addr);
 
         // Create new wallet and store index if wallet does not exist
         if (!result) {
@@ -527,7 +526,7 @@ module movement::Campaign {
 
         // Get this contract wallet
         let this_addr = @movement;
-        let (this_result, this_index) = vector::index_of(&wallet_addr_list, &this_addr);
+        let (_this_result, this_index) = vector::index_of(&wallet_addr_list, &this_addr);
         let this_wallet = vector::borrow_mut(&mut wallet_registry.wallets, this_index);
         
         // get this contract balance before deposit
@@ -545,7 +544,7 @@ module movement::Campaign {
         // Get creator data
         let creator_registry = borrow_global_mut<CreatorRegistry>(@movement);
         let creator_addr_list = creator_registry.creator_addr_index;
-        let (result, index) = vector::index_of(&creator_addr_list, &creator_addr);
+        let (_result, index) = vector::index_of(&creator_addr_list, &creator_addr);
         let creator = vector::borrow_mut(&mut creator_registry.creators, index);
 
         // Update total campaign created
@@ -580,7 +579,7 @@ module movement::Campaign {
         // Get participant list
         let participant_list = campaign.participant_address_index;
         // Find index of participant
-        let (result, index) = vector::index_of(&participant_list, &sender_addr);
+        let (result, _index) = vector::index_of(&participant_list, &sender_addr);
         // Verify user is not participated
         assert!(!result, ERR_USER_ALREADY_PARTICIPATED);
 
@@ -615,7 +614,7 @@ module movement::Campaign {
         // Get user data
         let user_registry = borrow_global_mut<UserRegistry>(@movement);
         let user_addr_list = user_registry.user_addr_index;
-        let (result, index) = vector::index_of(&user_addr_list, &signer::address_of(sender));
+        let (_result, index) = vector::index_of(&user_addr_list, &signer::address_of(sender));
         let user = vector::borrow_mut(&mut user_registry.users, index);
 
         // Update total participant
@@ -667,7 +666,7 @@ module movement::Campaign {
         // Get user data
         let user_registry = borrow_global_mut<UserRegistry>(@movement);
         let user_addr_list = user_registry.user_addr_index;
-        let (result, index) = vector::index_of(&user_addr_list, &sender_addr);
+        let (_result, index) = vector::index_of(&user_addr_list, &sender_addr);
         let user = vector::borrow_mut(&mut user_registry.users, index);
 
         // Update total submitted
@@ -688,7 +687,7 @@ module movement::Campaign {
         
         let addr_list = campaign.participant_address_index;
 
-        let (result, index) = vector::index_of(&addr_list, &receiver_addr);
+        let (_result, index) = vector::index_of(&addr_list, &receiver_addr);
         let id_list = campaign.participant_id_index;
 
         let participant_id = *vector::borrow_mut(&mut id_list, index);
@@ -712,7 +711,7 @@ module movement::Campaign {
 
         // Get this contract wallet
         let this_addr = @movement;
-        let (this_result, this_index) = vector::index_of(&wallet_addr_list, &this_addr);
+        let (_this_result, this_index) = vector::index_of(&wallet_addr_list, &this_addr);
         let this_wallet = vector::borrow_mut(&mut wallet_registry.wallets, this_index);
         
         // get this contract balance before deposit
@@ -722,6 +721,8 @@ module movement::Campaign {
         assert!(this_wallet.balance >= campaign.reward_per_submit, ERR_INSUFFICIENT_THIS_CONTRACT_BALANCE);
         // Decrease this contract balance
         this_wallet.balance = this_wallet.balance - campaign.reward_per_submit;
+        // Verify this wallet balance was decrease correctly
+        assert!(this_balance_before - campaign.reward_per_submit == this_wallet.balance, ERR_INCORRECT_DECREASING_BALANCE);
 
         // Get creator wallet index and data
         let (receiver_result, receiver_index) = vector::index_of(&wallet_addr_list, &receiver_addr);
@@ -739,7 +740,7 @@ module movement::Campaign {
         // Get user data
         let user_registry = borrow_global_mut<UserRegistry>(@movement);
         let user_addr_list = user_registry.user_addr_index;
-        let (result, index) = vector::index_of(&user_addr_list, &receiver_addr);
+        let (_result, index) = vector::index_of(&user_addr_list, &receiver_addr);
         let user = vector::borrow_mut(&mut user_registry.users, index);
 
         // Update total rewarded
@@ -748,7 +749,7 @@ module movement::Campaign {
         // Get creator data
         let creator_registry = borrow_global_mut<CreatorRegistry>(@movement);
         let creator_addr_list = creator_registry.creator_addr_index;
-        let (result, index) = vector::index_of(&creator_addr_list, &campaign.creator);
+        let (_result, index) = vector::index_of(&creator_addr_list, &campaign.creator);
         let creator = vector::borrow_mut(&mut creator_registry.creators, index);
 
         // Update total campaign created
@@ -762,7 +763,7 @@ module movement::Campaign {
         // Get address of signer (validator)
         let validator_addr = signer::address_of(validator);
         // Verify signer is validator
-        assert!(is_validator(signer::address_of(validator)), ERR_NOT_VALIDATOR);
+        assert!(is_validator(validator_addr), ERR_NOT_VALIDATOR);
 
         // Get campaign registry struct
         let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
@@ -787,7 +788,7 @@ module movement::Campaign {
         // Get user data
         let user_registry = borrow_global_mut<UserRegistry>(@movement);
         let user_addr_list = user_registry.user_addr_index;
-        let (result, index) = vector::index_of(&user_addr_list, &participant_info.participant_address);
+        let (_result, index) = vector::index_of(&user_addr_list, &participant_info.participant_address);
         let user = vector::borrow_mut(&mut user_registry.users, index);
 
         // Update total validation if it pass
