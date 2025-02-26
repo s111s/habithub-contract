@@ -38,6 +38,8 @@ module movement::Campaign {
     const ERR_RECEIVER_WALLET_DOES_NOT_EXIST: u64 = 1022;
     const ERR_INSUFFICIENT_THIS_CONTRACT_BALANCE: u64 = 1023;
     const ERR_INCORRECT_DECREASING_BALANCE: u64 = 1024;
+    const ERR_ALREADY_BE_A_VALIDATOR: u64 = 1025;
+    const ERR_ADDRESS_IS_NOT_VALIDATOR: u64 = 1026;
 
     // Struct
     struct CampaignRegistry has key, store, copy, drop {
@@ -115,7 +117,9 @@ module movement::Campaign {
     }
 
     struct ValidatorRegistry has key, store, copy, drop {
-        validators: vector<Validator>
+        validators: vector<Validator>,
+        validator_id_index: vector<u64>,
+        validator_addr_index: vector<address>
     }
 
     struct Validator has key, store, copy, drop {
@@ -163,7 +167,9 @@ module movement::Campaign {
 
         // Store ValidatorRegistry struct
         move_to(owner, ValidatorRegistry{
-            validators: vector::empty<Validator>()
+            validators: vector::empty<Validator>(),
+            validator_id_index: vector::empty<u64>(),
+            validator_addr_index: vector::empty<address>()
         });
 
         // Store Config struct
@@ -238,25 +244,15 @@ module movement::Campaign {
 
     #[view] // Check address is validator or not
     public fun is_validator(addr: address): bool acquires ValidatorRegistry {
-        let validators = borrow_global_mut<ValidatorRegistry>(@movement).validators;
-        let validator_length = vector::length(&validators);
+        // Get validator registry struct
+        let validator_registry = borrow_global<ValidatorRegistry>(@movement);
+        
+        // Get validator address list
+        let validator_addr_list = validator_registry.validator_addr_index;
 
-        let i = 0;
-        let found_count = 0;
-        while (i < validator_length) {
-            let validator = *vector::borrow(&validators, i);
-            if (&validator.addr == &addr) {
-                found_count = found_count + 1;
-            };
-            i = i + 1;
-        };
-        
-        if (found_count > 0) {
-            true
-        } else {
-            false
-        }
-        
+        // Get validator index
+        let (result, _index) = vector::index_of(&validator_addr_list, &addr);
+        result
     }
 
     #[view] // Get creator list
@@ -800,12 +796,13 @@ module movement::Campaign {
     // Admin Function
 
     // Add validator
-    public entry fun add_validator(admin: &signer, validator_addr: address, rule: String) acquires ValidatorRegistry {
-        // Get address of signer (admin)
-        let admin_addr = signer::address_of(admin);
+    public entry fun add_validator(sender: &signer, validator_addr: address, rule: String) acquires ValidatorRegistry, Config {
+        // Get admin addr
+        let admin = borrow_global_mut<Config>(@movement).admin;
+        let sender_addr = signer::address_of(sender);
 
         // Verify signer is admin
-        assert!(admin_addr == @movement, ERR_ONLY_ADMIN);
+        assert!(sender_addr == admin, ERR_ONLY_ADMIN);
 
         // Get validator registry struct
         let validator_registry = borrow_global_mut<ValidatorRegistry>(@movement);
@@ -823,9 +820,65 @@ module movement::Campaign {
             addr: validator_addr,
             rule: rule
         };
+
+        // Get validator address list
+        let validator_addr_list = validator_registry.validator_addr_index;
+
+        // find given addr in wallet list
+        let (result, _index) = vector::index_of(&validator_addr_list, &validator_addr);
+
+        assert!(!result, ERR_ALREADY_BE_A_VALIDATOR);
         
         // Store crafted validator data
         vector::push_back(&mut validator_registry.validators, new_validator);
+
+        // Store validator index
+        vector::push_back(&mut validator_registry.validator_id_index, next_validator_id);
+        vector::push_back(&mut validator_registry.validator_addr_index, validator_addr);
+    }
+
+    public entry fun remove_validator(sender: &signer, validator_addr: address) acquires ValidatorRegistry, Config {
+        // Get admin addr
+        let admin = borrow_global_mut<Config>(@movement).admin;
+        let sender_addr = signer::address_of(sender);
+
+        // Verify signer is admin
+        assert!(sender_addr == admin, ERR_ONLY_ADMIN);
+
+        // Get validator registry struct
+        let validator_registry = borrow_global_mut<ValidatorRegistry>(@movement);
+        
+        // Get validator address list
+        let validator_addr_list = validator_registry.validator_addr_index;
+
+        // Get validator index
+        let (result, index) = vector::index_of(&validator_addr_list, &validator_addr);
+        // Verify given address is validator
+        assert!(result, ERR_ADDRESS_IS_NOT_VALIDATOR);
+        
+        // Store crafted validator data
+        vector::remove(&mut validator_registry.validators, index);
+    }
+
+    // Update config
+    public entry fun update_config(sender: &signer, min_duration: u64, min_reward_pool: u64, min_total_participant: u64, max_total_participant: u64, reward_token: address) acquires Config {
+        // Get address of signer (admin)
+        let signer_addr = signer::address_of(sender);
+
+        // Get config data
+        let config = borrow_global_mut<Config>(@movement);
+
+        // Verify signer is admin
+        assert!(signer_addr == config.admin, ERR_ONLY_ADMIN);
+
+        // Update config data
+        config.min_duration = min_duration;
+        config.min_reward_pool = min_reward_pool;
+        config.min_reward_pool = min_reward_pool;
+        config.min_total_participant = min_total_participant;
+        config.max_total_participant = max_total_participant;
+        config.reward_token = reward_token;
+        // config.admin = admin_addr;
     }
 
     #[test(owner = @movement, init_addr = @0x1, creator1 = @0x168, participant1 = @0x101, validator1 = @0x999)]
