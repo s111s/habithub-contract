@@ -12,23 +12,28 @@ module movement::Campaign {
     const ERR_INCORRECT_REWARD_SETTING: u64 = 105;
     const ERR_CREATOR_WALLET_DOES_NOT_EXIST: u64 = 106;
     const ERR_INSUFFICIENT_CREATOR_BALANCE: u64 = 107;
-    const ERR_CAMPAIGN_DOES_NOT_EXIST: u64 = 108;
-    const ERR_CAMPAIGN_HAS_ENDED: u64 = 109;
-    const ERR_USER_ALREADY_PARTICIPATED: u64 = 110;
-    const ERR_LIMIT_PARTICIPANT_EXISTED: u64 = 111;
-    const ERR_ALREADY_SUBMIT: u64 = 112;
-    const ERR_SUBMIT_IS_NOT_VALIDATED: u64 = 113;
-    const ERR_NOT_PASS_VERIFICATION: u64 = 114;
-    const ERR_ALREADY_CLAIMED_REWARD: u64 = 115;
-    const ERR_INSUFFICIENT_THIS_CONTRACT_BALANCE: u64 = 116;
-    const ERR_INCORRECT_DECREASING_BALANCE: u64 = 117;
-    const ERR_RECEIVER_WALLET_DOES_NOT_EXIST: u64 = 118;
-    const ERR_NOT_VALIDATOR: u64 = 119;
-    const ERR_USER_IS_NOT_SUBMITTED: u64 = 120;
-    const ERR_ONLY_ADMIN: u64 = 121;
-    const ERR_ALREADY_BE_A_VALIDATOR: u64 = 122;
-    const ERR_ADDRESS_IS_NOT_VALIDATOR: u64 = 123;
-    const ERR_ONLY_PENDING_ADMIN: u64 = 124;
+    const ERR_INCORRECT_DEPOSIT_AMOUNT: u64 = 108;
+    const ERR_ONLY_CAMPAIGN_OWNER: u64 = 109;
+    const ERR_CAMPAIGN_DOES_NOT_EXIST: u64 = 110;
+    const ERR_CAMPAIGN_IS_NOT_END: u64 = 111;
+    const ERR_SOME_SUBMISSIONS_ARE_NOT_VALIDATED: u64 = 112;
+    const ERR_CAMPAIGN_HAS_ENDED: u64 = 113;
+    const ERR_USER_ALREADY_PARTICIPATED: u64 = 114;
+    const ERR_LIMIT_PARTICIPANT_EXISTED: u64 = 115;
+    const ERR_ALREADY_SUBMIT: u64 = 116;
+    const ERR_SUBMIT_IS_NOT_VALIDATED: u64 = 117;
+    const ERR_NOT_PASS_VERIFICATION: u64 = 118;
+    const ERR_ALREADY_CLAIMED_REWARD: u64 = 119;
+    const ERR_INSUFFICIENT_THIS_CONTRACT_BALANCE: u64 = 120;
+    const ERR_INCORRECT_DECREASING_BALANCE: u64 = 121;
+    const ERR_CAMPAIGN_IS_ALREADY_CLOSED: u64 = 122;
+    const ERR_RECEIVER_WALLET_DOES_NOT_EXIST: u64 = 123;
+    const ERR_NOT_VALIDATOR: u64 = 124;
+    const ERR_USER_IS_NOT_SUBMITTED: u64 = 125;
+    const ERR_ONLY_ADMIN: u64 = 126;
+    const ERR_ALREADY_BE_A_VALIDATOR: u64 = 127;
+    const ERR_ADDRESS_IS_NOT_VALIDATOR: u64 = 128;
+    const ERR_ONLY_PENDING_ADMIN: u64 = 129;
 
     // Struct
     struct CampaignRegistry has key, store, copy, drop {
@@ -49,7 +54,8 @@ module movement::Campaign {
         data_validation_type: String,
         participants: vector<Participant>,
         participant_id_index: vector<u64>,
-        participant_address_index: vector<address>
+        participant_address_index: vector<address>,
+        is_closed: bool
     }
 
     struct Participant has key, store, copy, drop {
@@ -501,7 +507,8 @@ module movement::Campaign {
             data_validation_type: data_validation_type,
             participants: vector::empty<Participant>(),
             participant_id_index: vector::empty<u64>(),
-            participant_address_index: vector::empty<address>()
+            participant_address_index: vector::empty<address>(),
+            is_closed: false
         };
 
         // Store crafted campaign data in the last member of CampaignRegistry vector
@@ -533,7 +540,7 @@ module movement::Campaign {
         this_wallet.balance = this_wallet.balance + reward_pool;
 
         // Verify reward is already deposit
-        assert!(this_balance_before + reward_pool == this_wallet.balance);
+        assert!(this_balance_before + reward_pool == this_wallet.balance, ERR_INCORRECT_DEPOSIT_AMOUNT);
 
         // Create creator if not exist
         create_creator_if_not_exist(creator_addr);
@@ -548,6 +555,93 @@ module movement::Campaign {
         creator.total_campaign_created = creator.total_campaign_created + 1;
         // Add created campaign id in created list
         vector::push_back(&mut creator.created_campaign_ids, next_campaign_id);
+    }
+
+    // Withdraw reward left after campaign is end for creator
+    public entry fun close_campaign_and_withdraw_stake_reward_left(sender: &signer, campaign_id: u64) acquires CampaignRegistry, WalletRegistry {
+        // Get address of signer (participant)
+        let sender_addr = signer::address_of(sender);
+
+        // Get campaign registry struct
+        let campaign_registry = borrow_global_mut<CampaignRegistry>(@movement);
+
+        // Count campaign
+        let campaign_registry_length = vector::length(&campaign_registry.campaigns);
+        // Verify campaign id is existed
+        assert!(campaign_id > 0 && campaign_id <= campaign_registry_length, ERR_CAMPAIGN_DOES_NOT_EXIST);
+
+        // Get campaign data
+        let campaign = vector::borrow_mut(&mut campaign_registry.campaigns, campaign_id - 1);
+
+        // Verify withdrawer is owner of the campaign
+        assert!(sender_addr == campaign.creator, ERR_ONLY_CAMPAIGN_OWNER);
+
+        // Get current time in seconds
+        let now = timestamp::now_seconds();
+        // Verify campaign is end
+        assert!(now >= campaign.end_time, ERR_CAMPAIGN_IS_NOT_END);
+
+        // Count participant data
+        let participant_count = vector::length(&campaign.participants);
+        let submit_count = 0;
+        let verified_count = 0;
+        let verification_pass_count = 0;
+        let is_claimed_reward_count = 0;
+        let i = 1;
+
+        // Loop for counting reward info
+        while (i <= participant_count) {
+            let participant = vector::borrow(&campaign.participants, i - 1);
+            if (participant.is_submitted == true) {
+                submit_count = submit_count + 1;
+            };
+            if (participant.is_validated == true) {
+                verified_count = verified_count + 1;
+            };
+            if (participant.is_validation_pass == true) {
+                verification_pass_count = verification_pass_count + 1;
+            };
+            if (participant.is_claimed_reward == true) {
+                is_claimed_reward_count = is_claimed_reward_count + 1;
+            };
+            i = i + 1;
+        };
+        
+        // Verify all submission is already validate
+        assert!(submit_count == verified_count, ERR_SOME_SUBMISSIONS_ARE_NOT_VALIDATED);
+
+        // Calculate total reward left of the campaign
+        let reward_left = campaign.reward_per_submit * (campaign.max_participant - verification_pass_count);
+
+        // Get walletdata
+        let wallet_registry = borrow_global_mut<WalletRegistry>(@movement);
+        let wallet_addr_list = wallet_registry.wallet_addr_index;
+
+        // Get creator wallet index and data
+        let (_creator_result, creator_index) = vector::index_of(&wallet_addr_list, &sender_addr);
+        let creator_wallet = vector::borrow_mut(&mut wallet_registry.wallets, creator_index);
+        
+        // Increase creator balance
+        creator_wallet.balance = creator_wallet.balance + reward_left;
+
+        // Get this contract wallet
+        let this_addr = @movement;
+        let (_this_result, this_index) = vector::index_of(&wallet_addr_list, &this_addr);
+        let this_wallet = vector::borrow_mut(&mut wallet_registry.wallets, this_index);
+        
+        // get this contract balance before deposit
+        let this_balance_before = this_wallet.balance;
+
+        // Verify this contract balance
+        assert!(this_wallet.balance >= reward_left, ERR_INSUFFICIENT_THIS_CONTRACT_BALANCE);
+        // Decrease this contract balance
+        this_wallet.balance = this_wallet.balance - reward_left;
+        // Verify this wallet balance was decrease correctly
+        assert!(this_balance_before - reward_left == this_wallet.balance, ERR_INCORRECT_DECREASING_BALANCE);
+
+        // Verify the campaign is not closed
+        assert!(!campaign.is_closed, ERR_CAMPAIGN_IS_ALREADY_CLOSED);
+        campaign.is_closed = true;
     }
 
     // User Function
