@@ -913,77 +913,7 @@ module movement::Campaign {
     }
 
     #[test_only]
-    use std::debug::print;
-
-    #[test(owner = @movement, init_addr = @0x1, creator1 = @0x168, participant1 = @0x101, validator1 = @0x999)]
-    fun test_function(owner: &signer, init_addr: signer, creator1: &signer, participant1: &signer, validator1: &signer) acquires Config, CampaignRegistry, ValidatorRegistry, WalletRegistry, CreatorRegistry, UserRegistry {
-        timestamp::set_time_has_started_for_testing(&init_addr);
-        init_module(owner);
-        faucet(creator1);
-        create_campaign(creator1, utf8(b"Campaign Name 1 Naja"), 90000, 5000, 500, 10, utf8(b"Image"), utf8(b"Shopping Receipt"));
-        create_campaign(creator1, utf8(b"Campaign Name 2 Naja"), 90000, 4000, 400, 10, utf8(b"Image"), utf8(b"Shopping Receipt"));
-        create_campaign(creator1, utf8(b"Campaign Name 3 Naja"), 90000, 3000, 300, 10, utf8(b"Image"), utf8(b"Shopping Receipt"));
-        participate_on_campaign(owner, 1);
-        participate_on_campaign(participant1, 1);
-        submit_on_campaign(participant1, 1, utf8(b"Test submit hash by participant1"));
-        add_validator(owner, signer::address_of(validator1), utf8(b"ANY"));
-        validate_data(validator1, 1, 2, true);
-        claim_reward(participant1, 1);
-
-        let campaign_result = get_all_campaign();
-        print(&campaign_result);
-
-        submit_on_campaign(owner, 1, utf8(b"Test submit hash by owner"));
-
-        let p_id_from_addr = get_participant_id_from_address(1, signer::address_of(participant1));
-        print(&p_id_from_addr);
-        
-        let all_validator_result = get_all_validator();
-        print(&all_validator_result);
-
-        let is_validator = is_validator(signer::address_of(validator1));
-        print(&is_validator);
-
-        let is_validator2 = is_validator(signer::address_of(owner));
-        print(&is_validator2);
-        
-        let campaign_1_info = get_campaign_by_id(1);
-        print(&campaign_1_info);
-
-        print(&utf8(b"ggggggg ptcp"));
-        let ptcp111 = get_participant_by_addr(1, signer::address_of(participant1));
-        print(&ptcp111);
-
-        let ptcp222 = get_participant_by_id(1, 2);
-        print(&ptcp222);
-
-        print(&utf8(b"Creator Bal"));
-        let cbl = get_wallet_by_addr(signer::address_of(creator1));
-        print(&cbl);
-        
-        print(&utf8(b"Wallet bal"));
-        let tbl = get_wallet_by_addr(signer::address_of(owner));
-        print(&tbl);
-
-        print(&utf8(b"Participant bal"));
-        let pbl = get_wallet_by_addr(signer::address_of(participant1));
-        print(&pbl);
-
-        print(&utf8(b"Get Creator"));
-        let cat = get_creator_by_addr(signer::address_of(creator1));
-        print(&cat);
-        // create_wallet_if_not_exist(signer::address_of(participant1));
-        // create_wallet_if_not_exist(signer::address_of(owner));
-        // let aw = get_all_wallet();
-        // print(&aw);
-
-        print(&utf8(b"Get Creator c1"));
-        let uc1 = get_user_by_addr(signer::address_of(creator1));
-        print(&uc1);
-
-        print(&utf8(b"Get User P1"));
-        let up1 = get_user_by_addr(signer::address_of(participant1));
-        print(&up1);
+    public fun init_for_test(movement_tester: &signer) acquires WalletRegistry {
+        init_module(movement_tester);
     }
-
 }
